@@ -242,9 +242,77 @@ function createSound() {
     }
   }
 
+  // Background music: a quiet music-box loop, synthesised like the effects,
+  // so the game still ships no audio files. Am7 – Fmaj7 – Cmaj7 – G6, one bar
+  // (4 s) per chord, a soft root pad under a slow pentatonic-ish arpeggio.
+  // Deliberately well below the effects: it should be felt, not noticed.
+  const MUSIC_CHORDS = [
+    [220.00, 261.63, 329.63, 392.00],
+    [174.61, 220.00, 261.63, 329.63],
+    [261.63, 329.63, 392.00, 493.88],
+    [196.00, 246.94, 293.66, 329.63],
+  ];
+  const MUSIC_MELODY = [0, 1, 2, 3, 2, 1, 2, 3];
+  const MUSIC_STEP = 0.25; // eighth note at 120 BPM
+  let musicGain = null;
+  let musicTimer = null;
+  let musicStep = 0;
+  let nextStepTime = 0;
+
+  /** One music note at an absolute context time, through the music bus. */
+  function noteAt(type, freq, time, seconds, volume) {
+    if (context === null || musicGain === null) return;
+    try {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = type;
+      oscillator.frequency.setValueAtTime(freq, time);
+      gain.gain.setValueAtTime(0.0001, time);
+      gain.gain.exponentialRampToValueAtTime(volume, time + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + seconds);
+      oscillator.connect(gain);
+      gain.connect(musicGain);
+      oscillator.start(time);
+      oscillator.stop(time + seconds + 0.02);
+    } catch {
+      // Garnish only.
+    }
+  }
+
+  function scheduleStep(step, time) {
+    const chord = MUSIC_CHORDS[Math.floor(step / 16) % MUSIC_CHORDS.length];
+    const inBar = step % 16;
+    if (inBar === 0) {
+      noteAt('triangle', chord[0] / 2, time, 3.8, 0.12);
+      noteAt('triangle', chord[0], time, 3.8, 0.06);
+    }
+    if (inBar % 2 === 0) {
+      noteAt('sine', chord[MUSIC_MELODY[(inBar / 2) | 0]] * 2, time, 0.9, 0.22);
+    }
+  }
+
+  function startMusic() {
+    if (musicTimer !== null || !ensure() || context === null) return;
+    musicGain = context.createGain();
+    musicGain.gain.value = muted ? 0 : 0.5;
+    musicGain.connect(master);
+    nextStepTime = context.currentTime + 0.1;
+    musicStep = 0;
+    musicTimer = setInterval(() => {
+      if (context === null) return;
+      // A hidden tab throttles the timer: never schedule a burst of catch-up.
+      if (nextStepTime < context.currentTime) nextStepTime = context.currentTime + 0.05;
+      while (nextStepTime < context.currentTime + 0.4) {
+        scheduleStep(musicStep, nextStepTime);
+        musicStep = (musicStep + 1) % 64;
+        nextStepTime += MUSIC_STEP;
+      }
+    }, 100);
+  }
+
   return {
     get muted() { return muted; },
-    unlock() { ensure(); },
+    unlock() { if (ensure()) startMusic(); },
     toggleMute() {
       muted = !muted;
       try {
@@ -252,6 +320,7 @@ function createSound() {
       } catch {
         // Storage can be off: the mute then lasts this visit only.
       }
+      if (musicGain !== null) musicGain.gain.value = muted ? 0 : 0.5;
       return muted;
     },
     /** A gather chime that climbs with the combo, so a streak sounds like one. */
