@@ -188,7 +188,7 @@ function createSound() {
       if (!AudioContext) return false;
       context = new AudioContext();
       master = context.createGain();
-      master.gain.value = 0.22;
+      master.gain.value = 0.4;
       master.connect(context.destination);
       return true;
     } catch {
@@ -1510,6 +1510,13 @@ function runShot(name) {
 function runGame() {
   const input = createInput(canvas);
   input.attachJoystick(document.getElementById('stick'), document.getElementById('stick-knob'));
+  // Unlock audio inside the real gesture, synchronously: some mobile browsers
+  // only allow AudioContext.resume() in the handler itself, and the start tap
+  // reaches startGame() a frame later, which was too late — the game stayed
+  // silent even though the HUD said sound was on.
+  const unlockAudio = () => sound.unlock();
+  canvas.addEventListener('pointerdown', unlockAudio);
+  window.addEventListener('keydown', unlockAudio);
   let screen = SCREEN_TITLE;
   let best = readBest();
   let accumulator = 0;
